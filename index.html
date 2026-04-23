@@ -4,502 +4,36 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Weightscope — X-ray for AI model weights</title>
-<meta name="description" content="See exactly what changed between any two AI models — by the numbers, not the marketing copy. Sparse tensor diff for any two HuggingFace checkpoints." />
+<meta name="description" content="Stream any two HuggingFace checkpoints, compare them tensor by tensor, and get a real diff report instead of vague release notes." />
 <meta property="og:title" content="Weightscope — X-ray for AI model weights" />
-<meta property="og:description" content="See exactly what changed between any two AI models — by the numbers, not the marketing copy." />
+<meta property="og:description" content="See what actually changed between models." />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://weightscope.dev" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%AC%3C/text%3E%3C/svg%3E" />
+<script src="https://cdn.tailwindcss.com"></script>
 <style>
-  :root {
-    --bg: #0b0d10;
-    --bg-card: #14181d;
-    --bg-elev: #1a1f26;
-    --fg: #e6e6e6;
-    --fg-dim: #9aa3ad;
-    --fg-faint: #5b6370;
-    --accent: #4ade80;
-    --accent-dim: #22c55e;
-    --accent-glow: rgba(74, 222, 128, 0.35);
-    --border: #232830;
-    --border-hi: #353c47;
-    --code-bg: #0f1216;
-    --grad-start: #4ade80;
-    --grad-mid:   #22d3ee;
-    --grad-end:   #a78bfa;
-  }
-  * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
-  html, body {
-    margin: 0;
-    padding: 0;
-    background: var(--bg);
-    color: var(--fg);
-    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
-    line-height: 1.55;
-    -webkit-font-smoothing: antialiased;
-    overflow-x: hidden;
-  }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; }
 
-  /* ------- floating background numbers ------- */
-  .bg-noise {
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
-    overflow: hidden;
-  }
-  .bg-num {
-    position: absolute;
-    color: var(--fg-faint);
-    opacity: 0.08;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 11px;
-    user-select: none;
-    animation: drift linear infinite;
-  }
-  @keyframes drift {
-    from { transform: translateY(0); opacity: 0.04; }
-    50%  { opacity: 0.12; }
-    to   { transform: translateY(-100vh); opacity: 0; }
-  }
-
-  /* ------- sticky nav ------- */
-  nav.top {
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    z-index: 100;
-    padding: 14px 24px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    backdrop-filter: blur(12px);
-    background: rgba(11, 13, 16, 0);
-    border-bottom: 1px solid transparent;
-    transition: background 0.25s, border-color 0.25s;
-  }
-  nav.top.scrolled {
-    background: rgba(11, 13, 16, 0.78);
-    border-bottom-color: var(--border);
-  }
-  nav.top .logo {
-    font-weight: 600;
-    letter-spacing: -0.01em;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  nav.top .logo .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 12px var(--accent-glow);
-    animation: pulse 2.4s ease-in-out infinite;
-  }
-  @keyframes pulse {
-    0%, 100% { transform: scale(1); opacity: 1; }
-    50%      { transform: scale(1.4); opacity: 0.7; }
-  }
-  nav.top .links {
-    display: flex;
-    gap: 24px;
-    align-items: center;
-  }
-  nav.top a.nav-link {
-    color: var(--fg-dim);
-    text-decoration: none;
-    font-size: 14px;
-    transition: color 0.15s;
-  }
-  nav.top a.nav-link:hover { color: var(--fg); }
-  nav.top a.nav-cta {
-    background: var(--accent);
-    color: #0b0d10;
-    padding: 7px 14px;
-    border-radius: 6px;
-    text-decoration: none;
-    font-size: 14px;
-    font-weight: 600;
-  }
-
-  /* ------- container + sections ------- */
-  .container {
-    position: relative;
-    z-index: 1;
-    max-width: 980px;
-    margin: 0 auto;
-    padding: 0 24px;
-  }
-
-  /* ------- hero ------- */
-  .hero {
-    min-height: 100vh;
-    padding: 120px 0 80px;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-  }
-  .brand-tag {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--fg-dim);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    margin-bottom: 24px;
-    padding: 6px 14px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: rgba(20, 24, 29, 0.6);
-    width: fit-content;
-    animation: fadeUp 0.7s ease-out 0.05s both;
-  }
-  .brand-tag .pill-dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 8px var(--accent-glow);
-  }
-
-  h1 {
-    font-size: clamp(40px, 7vw, 72px);
-    line-height: 1.05;
-    margin: 0 0 24px;
-    letter-spacing: -0.03em;
-    font-weight: 700;
-    animation: fadeUp 0.8s ease-out 0.15s both;
-  }
-  .grad-text {
-    background: linear-gradient(90deg, var(--grad-start) 0%, var(--grad-mid) 50%, var(--grad-end) 100%);
-    background-size: 200% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    animation: shimmer 6s linear infinite;
-  }
-  @keyframes shimmer {
-    0%   { background-position: 0% 50%; }
-    100% { background-position: 200% 50%; }
-  }
-
-  .lede {
-    font-size: clamp(18px, 2.2vw, 22px);
-    color: var(--fg-dim);
-    max-width: 660px;
-    margin: 0 0 36px;
-    animation: fadeUp 0.8s ease-out 0.3s both;
-  }
-  .cta-row {
-    display: flex;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin-bottom: 56px;
-    animation: fadeUp 0.8s ease-out 0.45s both;
-  }
-  .cta {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    background: var(--accent);
-    color: #0b0d10;
-    padding: 13px 22px;
-    border-radius: 8px;
-    text-decoration: none;
-    font-weight: 600;
-    transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
-  }
-  .cta:hover {
-    background: var(--accent-dim);
-    transform: translateY(-2px);
-    box-shadow: 0 12px 28px -8px var(--accent-glow);
-  }
-  .cta .arrow { transition: transform 0.2s; }
-  .cta:hover .arrow { transform: translateX(4px); }
-  .cta-secondary {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--fg);
-    border: 1px solid var(--border-hi);
-    padding: 13px 22px;
-    border-radius: 8px;
-    text-decoration: none;
-    font-weight: 500;
-    background: rgba(20, 24, 29, 0.6);
-    transition: border-color 0.15s, transform 0.15s;
-  }
-  .cta-secondary:hover {
-    border-color: var(--accent);
-    transform: translateY(-2px);
-  }
-
+  /* hero stagger fade-up */
+  .fadeup { opacity: 0; animation: fadeUp 0.7s ease-out forwards; }
   @keyframes fadeUp {
     from { opacity: 0; transform: translateY(24px); }
     to   { opacity: 1; transform: translateY(0); }
   }
+  /* scroll-reveal */
+  .reveal { opacity: 0; transform: translateY(28px); transition: opacity 0.8s ease, transform 0.8s ease; }
+  .reveal.in { opacity: 1; transform: none; }
 
-  /* ------- hero canvas (tensor heatmap visual) ------- */
-  .hero-visual {
-    width: 100%;
-    max-width: 720px;
-    aspect-ratio: 16 / 7;
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    background: var(--bg-card);
-    overflow: hidden;
-    position: relative;
-    box-shadow: 0 30px 80px -30px rgba(74, 222, 128, 0.25), 0 0 0 1px var(--border) inset;
-    animation: fadeUp 0.9s ease-out 0.6s both;
+  /* slow gradient sweep on hero halo */
+  @keyframes haloShift {
+    0%   { transform: translate(-2%, -2%) rotate(0deg); }
+    50%  { transform: translate(2%, 3%)   rotate(180deg); }
+    100% { transform: translate(-2%, -2%) rotate(360deg); }
   }
-  .hero-visual canvas {
-    display: block;
-    width: 100%;
-    height: 100%;
-  }
-  .hero-visual .visual-label {
-    position: absolute;
-    top: 12px; left: 14px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 11px;
-    color: var(--fg-dim);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-  .hero-visual .visual-label.right {
-    left: auto; right: 14px;
-    color: var(--accent);
-  }
+  .halo { animation: haloShift 18s ease-in-out infinite; transform-origin: center; }
 
-  /* ------- generic section ------- */
-  section.block {
-    padding: 96px 0;
-    position: relative;
-  }
-  h2 {
-    font-size: clamp(28px, 4vw, 40px);
-    letter-spacing: -0.02em;
-    margin: 0 0 16px;
-    font-weight: 700;
-  }
-  .section-lede {
-    color: var(--fg-dim);
-    font-size: 18px;
-    max-width: 620px;
-    margin: 0 0 40px;
-  }
-
-  /* fade-in-on-scroll */
-  .reveal {
-    opacity: 0;
-    transform: translateY(28px);
-    transition: opacity 0.8s ease, transform 0.8s ease;
-  }
-  .reveal.is-visible {
-    opacity: 1;
-    transform: none;
-  }
-
-  /* ------- code blocks ------- */
-  pre {
-    background: var(--code-bg);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 18px 22px;
-    overflow-x: auto;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 14px;
-    color: #cbd5e1;
-    line-height: 1.6;
-  }
-  code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    background: var(--code-bg);
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-size: 0.9em;
-  }
-  pre code { background: none; padding: 0; }
-  .accent-line { color: var(--accent); }
-  .dim-line   { color: var(--fg-dim); }
-
-  /* terminal mock */
-  .terminal {
-    background: var(--code-bg);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    overflow: hidden;
-    box-shadow: 0 24px 60px -24px rgba(0,0,0,0.6);
-  }
-  .terminal .bar {
-    background: var(--bg-elev);
-    padding: 10px 14px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border-bottom: 1px solid var(--border);
-  }
-  .terminal .bar .dot {
-    width: 12px; height: 12px; border-radius: 50%;
-  }
-  .terminal .bar .r { background: #ff5f56; }
-  .terminal .bar .y { background: #ffbd2e; }
-  .terminal .bar .g { background: #27c93f; }
-  .terminal .bar .title {
-    margin-left: 12px;
-    color: var(--fg-dim);
-    font-size: 12px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-  .terminal .body {
-    padding: 18px 22px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 14px;
-    color: #cbd5e1;
-    min-height: 220px;
-    white-space: pre-wrap;
-    line-height: 1.7;
-  }
-  .term-prompt { color: var(--accent); }
-  .term-out    { color: var(--fg-dim); }
-  .cursor {
-    display: inline-block;
-    width: 8px;
-    height: 16px;
-    background: var(--accent);
-    vertical-align: text-bottom;
-    margin-left: 2px;
-    animation: blink 1s steps(2) infinite;
-  }
-  @keyframes blink { 50% { opacity: 0; } }
-
-  /* ------- bullets ------- */
-  ul.bullets {
-    padding-left: 0;
-    list-style: none;
-    color: var(--fg-dim);
-  }
-  ul.bullets li {
-    margin-bottom: 14px;
-    padding-left: 28px;
-    position: relative;
-  }
-  ul.bullets li::before {
-    content: "";
-    position: absolute;
-    left: 0; top: 0.6em;
-    width: 14px;
-    height: 1px;
-    background: var(--accent);
-  }
-  ul.bullets strong { color: var(--fg); }
-
-  /* ------- pricing grid ------- */
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 18px;
-  }
-  .card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 24px 24px 26px;
-    transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
-    position: relative;
-    overflow: hidden;
-  }
-  .card::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(ellipse at top, var(--accent-glow), transparent 60%);
-    opacity: 0;
-    transition: opacity 0.3s;
-    pointer-events: none;
-  }
-  .card:hover {
-    transform: translateY(-4px);
-    border-color: var(--border-hi);
-    box-shadow: 0 24px 48px -24px rgba(0,0,0,0.6);
-  }
-  .card:hover::before { opacity: 0.15; }
-  .card h3 {
-    margin: 0 0 6px;
-    font-size: 18px;
-    font-weight: 600;
-  }
-  .card .price {
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--accent);
-    margin: 0 0 16px;
-  }
-  .card .price small {
-    font-size: 14px;
-    color: var(--fg-dim);
-    font-weight: 400;
-  }
-  .card ul {
-    margin: 0;
-    padding-left: 0;
-    list-style: none;
-    color: var(--fg-dim);
-    font-size: 14px;
-  }
-  .card li {
-    margin-bottom: 8px;
-    padding-left: 18px;
-    position: relative;
-  }
-  .card li::before {
-    content: "✓";
-    position: absolute;
-    left: 0;
-    color: var(--accent);
-    font-weight: 600;
-  }
-  .card.featured {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent-glow), 0 24px 48px -24px var(--accent-glow);
-  }
-  .card.featured::after {
-    content: "Most popular";
-    position: absolute;
-    top: 14px;
-    right: 14px;
-    background: var(--accent);
-    color: #0b0d10;
-    font-size: 10px;
-    padding: 3px 8px;
-    border-radius: 999px;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-  }
-
-  /* ------- footer ------- */
-  footer {
-    margin-top: 80px;
-    padding: 32px 0 48px;
-    border-top: 1px solid var(--border);
-    color: var(--fg-dim);
-    font-size: 14px;
-    display: flex;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 12px;
-  }
-  footer a { color: var(--fg-dim); text-decoration: none; transition: color 0.15s; }
-  footer a:hover { color: var(--fg); }
-
-  @media (max-width: 600px) {
-    nav.top .links a.nav-link { display: none; }
-    .hero { min-height: auto; padding: 100px 0 60px; }
-    section.block { padding: 64px 0; }
-  }
-
+  /* prefers-reduced-motion */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       animation-duration: 0.01ms !important;
@@ -510,316 +44,441 @@
   }
 </style>
 </head>
-<body>
+<body class="min-h-screen overflow-x-hidden bg-neutral-950 text-white antialiased">
 
-<div class="bg-noise" aria-hidden="true" id="bgNoise"></div>
+<!-- ambient gradient backdrop -->
+<div class="pointer-events-none fixed inset-0 z-0"
+     style="background:
+       radial-gradient(circle at 20% 0%, rgba(59,130,246,0.16), transparent 30%),
+       radial-gradient(circle at 80% 20%, rgba(168,85,247,0.14), transparent 24%),
+       radial-gradient(circle at 50% 100%, rgba(16,185,129,0.10), transparent 26%);"></div>
 
-<nav class="top" id="topNav">
-  <div class="logo"><span class="dot"></span> Weightscope</div>
-  <div class="links">
-    <a class="nav-link" href="#why">Why</a>
-    <a class="nav-link" href="#try">Try it</a>
-    <a class="nav-link" href="#pricing">Pricing</a>
-    <a class="nav-cta" href="https://github.com/weightscope/weightscope">GitHub →</a>
+<!-- sticky nav -->
+<header class="sticky top-0 z-50 border-b border-white/10 bg-neutral-950/70 backdrop-blur-xl">
+  <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-4 lg:px-8">
+    <div class="flex items-center gap-3">
+      <div class="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 ring-1 ring-white/15 shadow-lg shadow-blue-500/10">
+        <!-- GitCompareArrows -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5">
+          <circle cx="5" cy="6" r="3"/>
+          <path d="M12 6h5a2 2 0 0 1 2 2v7"/>
+          <path d="m15 9-3-3 3-3"/>
+          <circle cx="19" cy="18" r="3"/>
+          <path d="M12 18H7a2 2 0 0 1-2-2V9"/>
+          <path d="m9 15 3 3-3 3"/>
+        </svg>
+      </div>
+      <div>
+        <div class="font-semibold tracking-tight">Weightscope</div>
+        <div class="text-xs text-white/50">v0.1 · open source</div>
+      </div>
+    </div>
+
+    <nav class="hidden items-center gap-8 text-sm text-white/70 md:flex">
+      <a href="#why" class="transition hover:text-white">Why</a>
+      <a href="#demo" class="transition hover:text-white">Try it</a>
+      <a href="#pricing" class="transition hover:text-white">Pricing</a>
+      <a href="https://github.com/weightscope/weightscope" class="transition hover:text-white">GitHub</a>
+    </nav>
+
+    <a href="https://github.com/weightscope/weightscope"
+       class="rounded-2xl bg-white px-4 py-2 text-sm font-medium text-neutral-950 transition hover:bg-white/90">
+      Get the CLI
+    </a>
   </div>
-</nav>
+</header>
 
-<div class="container">
+<main class="relative z-10">
 
-  <header class="hero">
-    <div class="brand-tag"><span class="pill-dot"></span> v0.1 · open source</div>
-    <h1>X-ray for <span class="grad-text">AI&nbsp;model&nbsp;weights</span>.</h1>
-    <p class="lede">See exactly what changed between any two models — by the numbers, not the marketing copy. Stream any two HuggingFace checkpoints, get a tensor-by-tensor diff in seconds.</p>
-    <div class="cta-row">
-      <a class="cta" href="https://github.com/weightscope/weightscope">Get the CLI <span class="arrow">→</span></a>
-      <a class="cta-secondary" href="#try">See live demo</a>
+  <!-- HERO -->
+  <section class="mx-auto grid max-w-7xl gap-14 px-6 py-20 lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-28">
+    <div class="flex flex-col justify-center">
+      <div class="fadeup mb-6 inline-flex w-fit items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70" style="animation-delay:.05s">
+        <!-- Sparkles -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
+          <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>
+          <path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>
+        </svg>
+        X-ray for AI model weights
+      </div>
+
+      <h1 class="fadeup max-w-4xl text-5xl font-semibold leading-tight tracking-tight text-white md:text-6xl lg:text-7xl" style="animation-delay:.17s">
+        See what actually changed between models.
+      </h1>
+
+      <p class="fadeup mt-6 max-w-2xl text-lg leading-8 text-white/70 md:text-xl" style="animation-delay:.29s">
+        Stream any two HuggingFace checkpoints, compare them tensor by tensor, and get a real diff report instead of vague release notes and marketing claims.
+      </p>
+
+      <div class="fadeup mt-8 flex flex-wrap gap-4" style="animation-delay:.41s">
+        <a href="https://github.com/weightscope/weightscope"
+           class="inline-flex items-center gap-2 rounded-2xl bg-white px-6 py-3 font-medium text-neutral-950 transition hover:bg-white/90">
+          Get the CLI
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
+            <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+          </svg>
+        </a>
+        <a href="#demo"
+           class="inline-flex items-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-6 py-3 font-medium text-white transition hover:bg-white/10">
+          See live demo
+        </a>
+      </div>
+
+      <div class="fadeup mt-10 flex flex-wrap gap-x-6 gap-y-2 text-sm text-white/50" style="animation-delay:.53s">
+        <div>Tensor-by-tensor diffs</div>
+        <div>· LoRA + full fine-tune visibility</div>
+        <div>· Open-source CLI</div>
+      </div>
     </div>
-    <div class="hero-visual" aria-hidden="true">
-      <span class="visual-label">model A weights</span>
-      <span class="visual-label right">delta highlighted</span>
-      <canvas id="tensorCanvas"></canvas>
-    </div>
-  </header>
 
-  <section class="block" id="why">
-    <h2 class="reveal">Why it exists</h2>
-    <p class="section-lede reveal">Every fine-tune ships as a multi-gigabyte blob and a vague changelog. When someone uploads <code>Llama-3-70B-Medical-v2</code>, there's no way to see what actually changed vs the base model — you'd have to download both 140&nbsp;GB blobs and manually compare.</p>
-    <ul class="bullets reveal">
-      <li><strong>Model laundering</strong> — rebranded copies uploaded as "new" models, undetected.</li>
-      <li><strong>No quality signal</strong> — a LoRA touching 0.1% of weights vs a full fine-tune touching 15% tell you very different things. Currently invisible.</li>
-      <li><strong>Wasted bandwidth</strong> — HuggingFace ships petabytes/day of redundant weights because there's no deduplication.</li>
-    </ul>
-    <p class="reveal">Weightscope is the missing <code>git diff</code> for model weights.</p>
+    <!-- LIVE DIFF PREVIEW CARD -->
+    <div class="fadeup relative" style="animation-delay:.6s">
+      <div class="halo absolute -inset-6 rounded-[2rem] blur-3xl"
+           style="background: linear-gradient(135deg, rgba(59,130,246,0.25), rgba(168,85,247,0.18), rgba(16,185,129,0.18));"></div>
+      <div class="relative overflow-hidden rounded-[2rem] border border-white/10 bg-white/5 shadow-2xl shadow-black/40 backdrop-blur-xl">
+        <!-- card header -->
+        <div class="border-b border-white/10 bg-white/5 px-6 py-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-sm font-medium text-white">Live diff preview</div>
+              <div class="text-xs text-white/45">llama-base vs llama-medical-v2</div>
+            </div>
+            <div class="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs text-emerald-300">
+              14.2% weights changed
+            </div>
+          </div>
+        </div>
+
+        <!-- table -->
+        <div class="divide-y divide-white/5">
+          <!-- column headers -->
+          <div class="grid grid-cols-[1.5fr_1fr_1fr] gap-3 px-6 py-3 text-[11px] uppercase tracking-wider text-white/40">
+            <div>Tensor</div>
+            <div>Avg delta</div>
+            <div>% changed</div>
+          </div>
+          <!-- rows -->
+          <div class="grid grid-cols-[1.5fr_1fr_1fr] items-center gap-3 px-6 py-3 text-sm">
+            <div class="truncate font-mono text-xs text-white/80">layers.0.attn.q_proj.weight</div>
+            <div class="font-mono text-xs text-white/60">+0.0081</div>
+            <div class="flex items-center gap-2">
+              <div class="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+                <div class="h-full rounded-full bg-gradient-to-r from-emerald-400 to-blue-400" style="width:82%"></div>
+              </div>
+              <span class="w-10 text-right font-mono text-xs text-white/70">82%</span>
+            </div>
+          </div>
+          <div class="grid grid-cols-[1.5fr_1fr_1fr] items-center gap-3 px-6 py-3 text-sm">
+            <div class="truncate font-mono text-xs text-white/80">layers.12.mlp.up_proj.weight</div>
+            <div class="font-mono text-xs text-white/60">+0.0214</div>
+            <div class="flex items-center gap-2">
+              <div class="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+                <div class="h-full rounded-full bg-gradient-to-r from-emerald-400 to-blue-400" style="width:94%"></div>
+              </div>
+              <span class="w-10 text-right font-mono text-xs text-white/70">94%</span>
+            </div>
+          </div>
+          <div class="grid grid-cols-[1.5fr_1fr_1fr] items-center gap-3 px-6 py-3 text-sm">
+            <div class="truncate font-mono text-xs text-white/80">embed_tokens.weight</div>
+            <div class="font-mono text-xs text-white/60">+0.0006</div>
+            <div class="flex items-center gap-2">
+              <div class="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+                <div class="h-full rounded-full bg-gradient-to-r from-emerald-400 to-blue-400" style="width:3%"></div>
+              </div>
+              <span class="w-10 text-right font-mono text-xs text-white/70">3%</span>
+            </div>
+          </div>
+          <div class="grid grid-cols-[1.5fr_1fr_1fr] items-center gap-3 px-6 py-3 text-sm">
+            <div class="truncate font-mono text-xs text-white/80">lm_head.weight</div>
+            <div class="font-mono text-xs text-white/60">+0.0103</div>
+            <div class="flex items-center gap-2">
+              <div class="h-1.5 w-full rounded-full bg-white/10 overflow-hidden">
+                <div class="h-full rounded-full bg-gradient-to-r from-emerald-400 to-blue-400" style="width:77%"></div>
+              </div>
+              <span class="w-10 text-right font-mono text-xs text-white/70">77%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- card footer summary -->
+        <div class="grid grid-cols-3 gap-3 border-t border-white/10 bg-white/5 px-6 py-4 text-xs">
+          <div>
+            <div class="text-white/45">Total params</div>
+            <div class="mt-1 font-mono text-white/90">7.0 B</div>
+          </div>
+          <div>
+            <div class="text-white/45">Sparse delta</div>
+            <div class="mt-1 font-mono text-white/90">312 MB</div>
+          </div>
+          <div>
+            <div class="text-white/45">Compression</div>
+            <div class="mt-1 font-mono text-emerald-300">44.8x</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 
-  <section class="block" id="try">
-    <h2 class="reveal">Try it</h2>
-    <p class="section-lede reveal">Install the open-source CLI, point it at any two HuggingFace model IDs, get a markdown report.</p>
-    <div class="terminal reveal" id="terminal">
-      <div class="bar">
-        <div class="dot r"></div>
-        <div class="dot y"></div>
-        <div class="dot g"></div>
-        <div class="title">~/projects/weightscope</div>
+  <!-- WHY -->
+  <section id="why" class="mx-auto max-w-7xl px-6 py-20 lg:px-8 lg:py-28">
+    <div class="reveal mx-auto max-w-3xl text-center">
+      <div class="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs text-white/60">
+        Why it exists
       </div>
-      <div class="body" id="termBody"></div>
+      <h2 class="text-4xl font-semibold tracking-tight md:text-5xl">The state of model releases is broken.</h2>
+      <p class="mt-5 text-lg text-white/65">
+        Every fine-tune ships as a multi-gigabyte blob and a vague changelog. There is no way to verify what actually changed without downloading both and reading the bytes yourself.
+      </p>
+    </div>
+
+    <div class="mt-14 grid gap-6 md:grid-cols-3">
+      <!-- card 1 -->
+      <div class="reveal group rounded-2xl border border-white/10 bg-white/5 p-6 transition hover:border-white/20 hover:bg-white/10">
+        <div class="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-400/20">
+          <!-- ShieldCheck -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5">
+            <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>
+            <path d="m9 12 2 2 4-4"/>
+          </svg>
+        </div>
+        <h3 class="text-lg font-semibold">Model laundering</h3>
+        <p class="mt-2 text-sm text-white/60">Spot rebranded or near-identical uploads before they get passed off as something new.</p>
+      </div>
+      <!-- card 2 -->
+      <div class="reveal group rounded-2xl border border-white/10 bg-white/5 p-6 transition hover:border-white/20 hover:bg-white/10">
+        <div class="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-blue-400/10 text-blue-300 ring-1 ring-blue-400/20">
+          <!-- Search -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5">
+            <circle cx="11" cy="11" r="8"/>
+            <path d="m21 21-4.3-4.3"/>
+          </svg>
+        </div>
+        <h3 class="text-lg font-semibold">No quality signal</h3>
+        <p class="mt-2 text-sm text-white/60">See whether a model barely changed or was deeply fine-tuned across its tensors.</p>
+      </div>
+      <!-- card 3 -->
+      <div class="reveal group rounded-2xl border border-white/10 bg-white/5 p-6 transition hover:border-white/20 hover:bg-white/10">
+        <div class="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-violet-400/10 text-violet-300 ring-1 ring-violet-400/20">
+          <!-- DatabaseBolt -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5">
+            <ellipse cx="12" cy="5" rx="7" ry="3"/>
+            <path d="M5 5v6c0 1.66 3.13 3 7 3"/>
+            <path d="M19 5v3"/>
+            <path d="M5 11v6c0 1.66 3.13 3 7 3"/>
+            <path d="M16 13h3l-2 3h2l-4 5 1-4h-2l2-4Z"/>
+          </svg>
+        </div>
+        <h3 class="text-lg font-semibold">Wasted bandwidth</h3>
+        <p class="mt-2 text-sm text-white/60">Expose redundant weight shipping and open the door to smarter deduplication.</p>
+      </div>
     </div>
   </section>
 
-  <section class="block" id="pricing">
-    <h2 class="reveal">Pricing</h2>
-    <p class="section-lede reveal">CLI &amp; library are MIT-licensed and free forever, including for commercial use. The hosted product adds private diffs, history, and team features.</p>
-    <div class="grid reveal">
-      <div class="card">
-        <h3>Free</h3>
-        <p class="price">$0</p>
-        <ul>
-          <li>Open-source CLI &amp; library</li>
-          <li>Public diffs on HF</li>
-          <li>HuggingFace Space (≤ 2 GB)</li>
-          <li>Commercial use OK</li>
-        </ul>
+  <!-- TRY IT -->
+  <section id="demo" class="mx-auto max-w-7xl px-6 py-20 lg:px-8 lg:py-28">
+    <div class="reveal mx-auto max-w-3xl text-center">
+      <div class="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs text-white/60">
+        Try it
       </div>
-      <div class="card featured">
-        <h3>Pro</h3>
-        <p class="price">$9<small>/mo</small></p>
-        <ul>
-          <li>Private diffs on your checkpoints</li>
-          <li>Hosted history &amp; share links</li>
-          <li>No model size limit</li>
-          <li>Email support</li>
-        </ul>
-      </div>
-      <div class="card">
-        <h3>Team</h3>
-        <p class="price">$39<small>/mo</small></p>
-        <ul>
-          <li>Up to 5 seats</li>
-          <li>Shared workspace</li>
-          <li>SSO (Google, Okta)</li>
-          <li>Audit log + Slack support</li>
-        </ul>
-      </div>
-      <div class="card">
-        <h3>Enterprise</h3>
-        <p class="price">Custom</p>
-        <ul>
-          <li>On-prem deployment</li>
-          <li>Signed compliance reports</li>
-          <li>Lineage fingerprint lookup</li>
-          <li>Custom SLAs</li>
-        </ul>
-      </div>
+      <h2 class="text-4xl font-semibold tracking-tight md:text-5xl">One install. Two model IDs. A real diff.</h2>
+      <p class="mt-5 text-lg text-white/65">
+        The CLI is MIT-licensed and free forever. Stream any two HuggingFace checkpoints, get a markdown report.
+      </p>
     </div>
-    <p class="reveal" style="color:var(--fg-dim);font-size:14px;margin-top:24px;max-width:680px;">If your subscription lapses we never delete your data and never lock the CLI. You drop back to Free-tier limits for new artifacts; everything you already created stays accessible.</p>
+
+    <div class="reveal mx-auto mt-12 max-w-3xl overflow-hidden rounded-2xl border border-white/10 bg-neutral-900/80 shadow-2xl shadow-black/50">
+      <div class="flex items-center gap-2 border-b border-white/10 bg-white/5 px-4 py-3">
+        <span class="h-3 w-3 rounded-full bg-red-400/80"></span>
+        <span class="h-3 w-3 rounded-full bg-yellow-400/80"></span>
+        <span class="h-3 w-3 rounded-full bg-green-400/80"></span>
+        <span class="ml-3 font-mono text-xs text-white/40">~/projects/weightscope</span>
+      </div>
+      <pre id="terminal" class="px-6 py-5 font-mono text-sm leading-7 text-white/80 whitespace-pre-wrap min-h-[340px]"></pre>
+    </div>
   </section>
 
-  <footer>
+  <!-- PRICING -->
+  <section id="pricing" class="mx-auto max-w-7xl px-6 py-20 lg:px-8 lg:py-28">
+    <div class="reveal mx-auto max-w-3xl text-center">
+      <div class="mb-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-xs text-white/60">
+        Pricing
+      </div>
+      <h2 class="text-4xl font-semibold tracking-tight md:text-5xl">Open source forever. Pay for the hosted bits.</h2>
+      <p class="mt-5 text-lg text-white/65">
+        CLI &amp; library are MIT-licensed and free for any use. The hosted product adds private diffs, history, and team features.
+      </p>
+    </div>
+
+    <div class="mt-14 grid gap-6 md:grid-cols-3">
+      <!-- Free -->
+      <div class="reveal flex flex-col rounded-2xl border border-white/10 bg-white/5 p-7 transition hover:border-white/20">
+        <div class="text-sm font-medium text-white/60">Free</div>
+        <div class="mt-2 flex items-baseline gap-1">
+          <span class="text-4xl font-semibold tracking-tight">$0</span>
+        </div>
+        <p class="mt-3 text-sm text-white/55">For open-source exploration and public model diffs.</p>
+        <ul class="mt-6 flex-1 space-y-3 text-sm">
+          <li class="flex items-start gap-2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-400"><path d="M20 6 9 17l-5-5"/></svg>Open-source CLI &amp; library</li>
+          <li class="flex items-start gap-2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-400"><path d="M20 6 9 17l-5-5"/></svg>Public diffs on HuggingFace</li>
+          <li class="flex items-start gap-2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-400"><path d="M20 6 9 17l-5-5"/></svg>HuggingFace Space (≤ 2 GB)</li>
+          <li class="flex items-start gap-2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-400"><path d="M20 6 9 17l-5-5"/></svg>Commercial use OK</li>
+        </ul>
+        <a href="https://github.com/weightscope/weightscope"
+           class="mt-8 inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10">
+          Install the CLI
+        </a>
+      </div>
+
+      <!-- Pro (featured) -->
+      <div class="reveal relative flex flex-col rounded-2xl border border-emerald-400/40 bg-gradient-to-b from-emerald-400/10 to-white/5 p-7 shadow-xl shadow-emerald-500/10">
+        <div class="absolute -top-3 right-6 rounded-full bg-emerald-400 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-neutral-900">
+          Most popular
+        </div>
+        <div class="text-sm font-medium text-emerald-300">Pro</div>
+        <div class="mt-2 flex items-baseline gap-1">
+          <span class="text-4xl font-semibold tracking-tight">$9</span>
+          <span class="text-white/50">/mo</span>
+        </div>
+        <p class="mt-3 text-sm text-white/65">For private checkpoint comparisons and hosted history.</p>
+        <ul class="mt-6 flex-1 space-y-3 text-sm">
+          <li class="flex items-start gap-2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-400"><path d="M20 6 9 17l-5-5"/></svg>Private diffs on your checkpoints</li>
+          <li class="flex items-start gap-2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-400"><path d="M20 6 9 17l-5-5"/></svg>Hosted history &amp; share links</li>
+          <li class="flex items-start gap-2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-400"><path d="M20 6 9 17l-5-5"/></svg>No model size limit</li>
+          <li class="flex items-start gap-2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-400"><path d="M20 6 9 17l-5-5"/></svg>Email support</li>
+        </ul>
+        <a href="mailto:hello@weightscope.dev?subject=Weightscope%20Pro%20early%20access"
+           class="mt-8 inline-flex items-center justify-center rounded-xl bg-emerald-400 px-4 py-2.5 text-sm font-semibold text-neutral-900 transition hover:bg-emerald-300">
+          Get early access
+        </a>
+      </div>
+
+      <!-- Team -->
+      <div class="reveal flex flex-col rounded-2xl border border-white/10 bg-white/5 p-7 transition hover:border-white/20">
+        <div class="text-sm font-medium text-white/60">Team</div>
+        <div class="mt-2 flex items-baseline gap-1">
+          <span class="text-4xl font-semibold tracking-tight">$39</span>
+          <span class="text-white/50">/mo</span>
+        </div>
+        <p class="mt-3 text-sm text-white/55">For collaborative model analysis across an org.</p>
+        <ul class="mt-6 flex-1 space-y-3 text-sm">
+          <li class="flex items-start gap-2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-400"><path d="M20 6 9 17l-5-5"/></svg>Up to 5 seats</li>
+          <li class="flex items-start gap-2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-400"><path d="M20 6 9 17l-5-5"/></svg>Shared workspace</li>
+          <li class="flex items-start gap-2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-400"><path d="M20 6 9 17l-5-5"/></svg>SSO (Google, Okta)</li>
+          <li class="flex items-start gap-2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 h-4 w-4 shrink-0 text-emerald-400"><path d="M20 6 9 17l-5-5"/></svg>Audit log + Slack support</li>
+        </ul>
+        <a href="mailto:hello@weightscope.dev?subject=Weightscope%20Team%20plan"
+           class="mt-8 inline-flex items-center justify-center rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10">
+          Talk to us
+        </a>
+      </div>
+    </div>
+
+    <p class="reveal mx-auto mt-10 max-w-2xl text-center text-sm text-white/45">
+      If your subscription lapses, we never delete your data and never lock the CLI. You drop back to Free-tier limits for new artifacts; everything you already created stays accessible.
+    </p>
+  </section>
+
+  <!-- FOOTER CTA -->
+  <section class="mx-auto max-w-5xl px-6 pb-20 lg:px-8">
+    <div class="reveal relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-blue-500/10 via-violet-500/10 to-emerald-500/10 p-10 text-center">
+      <h3 class="text-3xl font-semibold tracking-tight md:text-4xl">Diff your first model in 60 seconds.</h3>
+      <p class="mx-auto mt-3 max-w-xl text-white/65">
+        <code class="rounded bg-white/10 px-2 py-1 text-sm font-mono">pip install weightscope</code> &nbsp;then point it at any two HuggingFace checkpoints.
+      </p>
+      <div class="mt-7 flex flex-wrap justify-center gap-3">
+        <a href="https://github.com/weightscope/weightscope"
+           class="inline-flex items-center gap-2 rounded-2xl bg-white px-6 py-3 font-medium text-neutral-950 transition hover:bg-white/90">
+          Star on GitHub
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
+            <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="border-t border-white/10">
+  <div class="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-6 py-8 text-sm text-white/50 md:flex-row lg:px-8">
     <div>© 2026 Weightscope</div>
-    <div>
-      <a href="https://github.com/weightscope/weightscope">GitHub</a> &nbsp;·&nbsp;
-      <a href="mailto:hello@weightscope.dev">hello@weightscope.dev</a>
+    <div class="flex gap-5">
+      <a href="https://github.com/weightscope/weightscope" class="hover:text-white">GitHub</a>
+      <a href="mailto:hello@weightscope.dev" class="hover:text-white">hello@weightscope.dev</a>
     </div>
-  </footer>
-
-</div>
+  </div>
+</footer>
 
 <script>
-/* ----------- sticky nav background on scroll ----------- */
-const nav = document.getElementById('topNav');
-const onScroll = () => {
-  if (window.scrollY > 24) nav.classList.add('scrolled');
-  else nav.classList.remove('scrolled');
-};
-window.addEventListener('scroll', onScroll, { passive: true });
-onScroll();
-
-/* ----------- reveal-on-scroll ----------- */
-const io = new IntersectionObserver((entries) => {
-  entries.forEach(e => {
-    if (e.isIntersecting) {
-      e.target.classList.add('is-visible');
-      io.unobserve(e.target);
-    }
-  });
-}, { threshold: 0.12, rootMargin: '0px 0px -50px 0px' });
-document.querySelectorAll('.reveal').forEach(el => io.observe(el));
-
-/* ----------- floating background numbers ----------- */
-const bg = document.getElementById('bgNoise');
-const sample = () => (Math.random() < 0.5 ? '-' : '') + (Math.random() * 9.99).toFixed(4);
-function spawnNum() {
-  const el = document.createElement('div');
-  el.className = 'bg-num';
-  el.textContent = sample();
-  el.style.left = Math.random() * 100 + 'vw';
-  el.style.top = (100 + Math.random() * 30) + 'vh';
-  el.style.animationDuration = (16 + Math.random() * 18) + 's';
-  bg.appendChild(el);
-  setTimeout(() => el.remove(), 38000);
-}
-for (let i = 0; i < 24; i++) {
-  setTimeout(spawnNum, i * 800);
-}
-setInterval(spawnNum, 1200);
-
-/* ----------- tensor heatmap canvas ----------- */
-(function tensor() {
-  const canvas = document.getElementById('tensorCanvas');
-  const ctx = canvas.getContext('2d');
-  let cw, ch, cols, rows, cellSize, padX, padY;
-  const COLS_TARGET = 64;
-  const ROWS_TARGET = 28;
-  let weights, deltas, frame = 0;
-
-  function resize() {
-    const dpr = window.devicePixelRatio || 1;
-    const r = canvas.getBoundingClientRect();
-    cw = r.width; ch = r.height;
-    canvas.width  = cw * dpr;
-    canvas.height = ch * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    cellSize = Math.min(cw / COLS_TARGET, ch / ROWS_TARGET);
-    cols = Math.floor(cw / cellSize);
-    rows = Math.floor(ch / cellSize);
-    padX = (cw - cols * cellSize) / 2;
-    padY = (ch - rows * cellSize) / 2;
-    weights = new Float32Array(cols * rows);
-    deltas  = new Float32Array(cols * rows);
-    for (let i = 0; i < weights.length; i++) {
-      weights[i] = Math.random() * 2 - 1;
-    }
-  }
-
-  function step() {
-    frame++;
-    /* slow drift on weights (the "model") */
-    for (let i = 0; i < weights.length; i++) {
-      weights[i] += (Math.random() - 0.5) * 0.012;
-      if (weights[i] >  1.2) weights[i] =  1.2;
-      if (weights[i] < -1.2) weights[i] = -1.2;
-    }
-    /* every ~120 frames, "fine-tune": flip a sparse delta on */
-    if (frame % 110 === 0) {
-      deltas.fill(0);
-      const n = Math.floor(weights.length * 0.06);
-      for (let k = 0; k < n; k++) {
-        const idx = Math.floor(Math.random() * weights.length);
-        deltas[idx] = 1.0;
-      }
-    }
-    /* fade existing deltas */
-    for (let i = 0; i < deltas.length; i++) {
-      deltas[i] *= 0.985;
-    }
-
-    ctx.clearRect(0, 0, cw, ch);
-
-    /* base weights — blue-violet to white intensity */
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const v = weights[r * cols + c];
-        const mag = Math.abs(v);
-        /* base color: cool dim */
-        const hue = v < 0 ? 240 : 200;
-        const sat = 60 + mag * 20;
-        const lit = 16 + mag * 28;
-        ctx.fillStyle = `hsl(${hue} ${sat}% ${lit}%)`;
-        ctx.fillRect(
-          padX + c * cellSize + 0.5,
-          padY + r * cellSize + 0.5,
-          cellSize - 1,
-          cellSize - 1
-        );
-        /* delta overlay — green X-ray glow */
-        const d = deltas[r * cols + c];
-        if (d > 0.02) {
-          ctx.fillStyle = `rgba(74, 222, 128, ${d})`;
-          ctx.fillRect(
-            padX + c * cellSize + 0.5,
-            padY + r * cellSize + 0.5,
-            cellSize - 1,
-            cellSize - 1
-          );
-        }
-      }
-    }
-    requestAnimationFrame(step);
-  }
-
-  resize();
-  window.addEventListener('resize', resize);
-  step();
-})();
-
-/* ----------- typed terminal ----------- */
-(function typedTerminal() {
-  const body = document.getElementById('termBody');
-  const lines = [
-    { t: 'prompt', text: '$ pip install weightscope' },
-    { t: 'out',    text: 'Successfully installed weightscope-0.1.0' },
-    { t: 'prompt', text: '$ weightscope Qwen/Qwen2.5-0.5B Qwen/Qwen2.5-0.5B-Instruct' },
-    { t: 'out',    text: 'weightscope - comparing models' },
-    { t: 'out',    text: '  A: Qwen/Qwen2.5-0.5B' },
-    { t: 'out',    text: '  B: Qwen/Qwen2.5-0.5B-Instruct' },
-    { t: 'out',    text: '  Threshold: 1e-06' },
-    { t: 'out',    text: '' },
-    { t: 'out',    text: 'Diffing tensors... ✓ 290 tensors' },
-    { t: 'out',    text: '' },
-    { t: 'accent', text: '# Model diff: Qwen/Qwen2.5-0.5B vs Qwen/Qwen2.5-0.5B-Instruct' },
-    { t: 'out',    text: '- Total params compared: 494,032,768' },
-    { t: 'out',    text: '- Changed params:        483,814,955  (97.93%)' },
-    { t: 'out',    text: '- Sparsity:              2.07%' },
-    { t: 'out',    text: '- Full model size:       942.3 MB' },
-    { t: 'out',    text: '- Sparse delta size:     2.7 GB' },
-    { t: 'out',    text: '- Compression ratio:     0.3x' },
-  ];
-
-  let started = false;
-  const obs = new IntersectionObserver(es => {
-    es.forEach(e => {
-      if (e.isIntersecting && !started) {
-        started = true;
-        run();
-        obs.disconnect();
+  /* scroll-reveal */
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('in');
+        io.unobserve(e.target);
       }
     });
-  }, { threshold: 0.4 });
-  obs.observe(document.getElementById('terminal'));
+  }, { threshold: 0.12, rootMargin: '0px 0px -60px 0px' });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
 
-  function spanClass(t) {
-    if (t === 'prompt') return 'term-prompt';
-    if (t === 'accent') return 'accent-line';
-    return 'term-out';
-  }
-  async function typeLine(line) {
-    const span = document.createElement('span');
-    span.className = spanClass(line.t);
-    body.appendChild(span);
-    /* prompt = type char-by-char; output = stream fast */
-    if (line.t === 'prompt') {
-      for (const ch of line.text) {
-        span.textContent += ch;
-        await sleep(28);
+  /* typed terminal */
+  (function () {
+    const el = document.getElementById('terminal');
+    if (!el) return;
+    const lines = [
+      { c: 'text-emerald-300', t: '$ pip install weightscope' },
+      { c: 'text-white/55',   t: 'Successfully installed weightscope-0.1.0' },
+      { c: 'text-emerald-300', t: '$ weightscope Qwen/Qwen2.5-0.5B Qwen/Qwen2.5-0.5B-Instruct' },
+      { c: 'text-white/55',   t: 'weightscope - comparing models' },
+      { c: 'text-white/55',   t: '  A: Qwen/Qwen2.5-0.5B' },
+      { c: 'text-white/55',   t: '  B: Qwen/Qwen2.5-0.5B-Instruct' },
+      { c: 'text-white/55',   t: '  Threshold: 1e-06' },
+      { c: 'text-white/40',   t: '' },
+      { c: 'text-white/55',   t: 'Diffing tensors... ✓ 290 tensors' },
+      { c: 'text-white/40',   t: '' },
+      { c: 'text-blue-300',   t: '# Model diff: Qwen/Qwen2.5-0.5B vs Qwen/Qwen2.5-0.5B-Instruct' },
+      { c: 'text-white/75',   t: '- Total params compared: 494,032,768' },
+      { c: 'text-white/75',   t: '- Changed params:        483,814,955  (97.93%)' },
+      { c: 'text-white/75',   t: '- Sparsity:              2.07%' },
+      { c: 'text-white/75',   t: '- Full model size:       942.3 MB' },
+      { c: 'text-white/75',   t: '- Sparse delta size:     2.7 GB' },
+      { c: 'text-emerald-300', t: '- Compression ratio:     0.3x' },
+    ];
+
+    let started = false;
+    const obs = new IntersectionObserver(es => {
+      es.forEach(e => {
+        if (e.isIntersecting && !started) {
+          started = true;
+          run();
+          obs.disconnect();
+        }
+      });
+    }, { threshold: 0.3 });
+    obs.observe(el);
+
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    async function run() {
+      el.textContent = '';
+      for (const line of lines) {
+        const span = document.createElement('span');
+        span.className = line.c;
+        el.appendChild(span);
+        if (line.t.startsWith('$')) {
+          for (const ch of line.t) {
+            span.textContent += ch;
+            await sleep(22);
+          }
+        } else {
+          span.textContent = line.t;
+          await sleep(line.t === '' ? 60 : 110);
+        }
+        el.appendChild(document.createTextNode('\n'));
       }
-    } else {
-      span.textContent = line.text;
-      await sleep(line.text === '' ? 80 : 140);
+      const cur = document.createElement('span');
+      cur.className = 'inline-block w-2 h-4 align-text-bottom bg-emerald-400 animate-pulse';
+      el.appendChild(cur);
     }
-    body.appendChild(document.createTextNode('\n'));
-  }
-  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-  async function run() {
-    body.textContent = '';
-    for (const line of lines) {
-      await typeLine(line);
-    }
-    const cur = document.createElement('span');
-    cur.className = 'cursor';
-    body.appendChild(cur);
-  }
-})();
+  })();
 </script>
 
 </body>
